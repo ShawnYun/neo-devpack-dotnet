@@ -1,7 +1,9 @@
+using Mono.Cecil;
 using Neo.Compiler.MSIL;
 using Neo.SmartContract;
 using Neo.SmartContract.Manifest;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -239,6 +241,9 @@ namespace Neo.Compiler
                     .Select(u => (ContractFeatures)u.ConstructorArguments.FirstOrDefault().Value)
                     .FirstOrDefault();
 
+                var extraAttributes = module == null ? new List<Mono.Collections.Generic.Collection<CustomAttributeArgument>>() : module.attributes.Where(u => u.AttributeType.Name == "ManifestExtraAttribute").Select(attribute => attribute.ConstructorArguments).ToList();
+
+                var extra = BuildExtraAttributes(extraAttributes);
                 var storage = features.HasFlag(ContractFeatures.HasStorage).ToString().ToLowerInvariant();
                 var payable = features.HasFlag(ContractFeatures.Payable).ToString().ToLowerInvariant();
 
@@ -246,7 +251,7 @@ namespace Neo.Compiler
                 string defManifest =
                     @"{""groups"":[],""features"":{""storage"":" + storage + @",""payable"":" + payable + @"},""abi"":" +
                     jsonstr +
-                    @",""permissions"":[{""contract"":""*"",""methods"":""*""}],""trusts"":[],""safeMethods"":[]}";
+                    @",""permissions"":[{""contract"":""*"",""methods"":""*""}],""trusts"":[],""safeMethods"":[],""extra"":"+extra+"}";
 
                 File.Delete(manifest);
                 File.WriteAllText(manifest, defManifest);
@@ -274,6 +279,26 @@ namespace Neo.Compiler
             {
                 log.Log("SUCC");
             }
+        }
+
+        private static string BuildExtraAttributes(List<Mono.Collections.Generic.Collection<CustomAttributeArgument>> extraAttributes)
+        {
+            if(extraAttributes.Count == 0)
+            {
+                return null;
+            }
+
+            string extra = "{";
+            foreach (var extraAttribute in extraAttributes)
+            {
+                var key = extraAttribute[0].Value;
+                var value = extraAttribute[1].Value;
+                extra += ($"\"{key}\":\"{value}\",");
+            }
+            extra = extra.Substring(0, extra.Length - 1);
+            extra += "}";
+
+            return extra;
         }
     }
 }
