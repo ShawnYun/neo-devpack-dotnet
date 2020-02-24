@@ -1,383 +1,158 @@
-using Neo.VM;
-using System;
-using System.Buffers.Binary;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Reflection;
 
-namespace Neo.Compiler
+namespace Neo.Compiler.Optimizer
 {
     public class NefOptimizer
     {
-        public interface IJump
-        {
-            /// <summary>
-            /// Offset
-            /// </summary>
-            int Offset { get; set; }
-        }
-
-        [DebuggerDisplay("Offset={Offset}")]
-        public class JumpI32 : IJump
-        {
-            private readonly NefInstruction _instruction;
-
-            public int Offset
-            {
-                get => BinaryPrimitives.ReadInt32LittleEndian(_instruction.Operand.AsSpan());
-                set { BinaryPrimitives.WriteInt32LittleEndian(_instruction.Operand, value); }
-            }
-
-            /// <summary>
-            /// Constructor
-            /// </summary>
-            /// <param name="instruction">Instruction</param>
-            public JumpI32(NefInstruction instruction)
-            {
-                _instruction = instruction;
-            }
-        }
-
-        [DebuggerDisplay("Offset={Offset}")]
-        public class JumpI8 : IJump
-        {
-            private readonly NefInstruction _instruction;
-
-            public int Offset
-            {
-                get => (sbyte)_instruction.Operand[0];
-                set { _instruction.Operand[0] = (byte)(sbyte)value; }
-            }
-
-            /// <summary>
-            /// Constructor
-            /// </summary>
-            /// <param name="instruction">Instruction</param>
-            public JumpI8(NefInstruction instruction)
-            {
-                _instruction = instruction;
-            }
-        }
-
-        [DebuggerDisplay("Offset={Offset}, OpCode={OpCode}, Size={Size}")]
-        public class NefInstruction
-        {
-            private static readonly ConstructorInfo InstructionConstructor;
-            private static readonly int[] OperandSizePrefixTable = new int[256];
-
-            private readonly Instruction _instruction;
-
-            /// <summary>
-            /// Offset
-            /// </summary>
-            public int Offset { get; internal set; }
-
-            /// <summary>
-            /// OpCode
-            /// </summary>
-            public OpCode OpCode { get; internal set; }
-
-            /// <summary>
-            /// Size
-            /// </summary>
-            public int Size { get; internal set; }
-
-            /// <summary>
-            /// Operand
-            /// </summary>
-            public byte[] Operand { get; internal set; }
-
-            /// <summary>
-            /// Jump
-            /// </summary>
-            public IJump Jump { get; internal set; }
-
-            /// <summary>
-            /// Static constructor
-            /// </summary>
-            static NefInstruction()
-            {
-                foreach (var field in typeof(OpCode).GetFields(BindingFlags.Public | BindingFlags.Static))
-                {
-                    var attribute = field.GetCustomAttribute<OperandSizeAttribute>();
-                    if (attribute == null) continue;
-                    int index = (int)(OpCode)field.GetValue(null);
-                    OperandSizePrefixTable[index] = attribute.SizePrefix;
-                }
-
-                InstructionConstructor = typeof(Instruction).GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
-                    .Where(u => u.GetParameters().Length == 2)
-                    .FirstOrDefault();
-            }
-
-            /// <summary>
-            /// Constructor
-            /// </summary>
-            /// <param name="script">Script</param>
-            /// <param name="offset">Offset</param>
-            public NefInstruction(byte[] script, int offset)
-            {
-                Offset = offset;
-                _instruction = (Instruction)InstructionConstructor.Invoke(new object[] { script, offset });
-                Operand = _instruction.Operand.ToArray();
-                OpCode = _instruction.OpCode;
-                Size = _instruction.Size;
-
-                switch (_instruction.OpCode)
-                {
-                    case OpCode.PUSHA:
-                    case OpCode.CALL_L:
-
-                    case OpCode.JMP_L:
-                    case OpCode.JMPIF_L:
-                    case OpCode.JMPLE_L:
-                    case OpCode.JMPLT_L:
-                    case OpCode.JMPNE_L:
-                    case OpCode.JMPIFNOT_L:
-                    case OpCode.JMPEQ_L:
-                    case OpCode.JMPGE_L:
-                    case OpCode.JMPGT_L: Jump = new JumpI32(this); break;
-
-                    case OpCode.CALL:
-
-                    case OpCode.JMP:
-                    case OpCode.JMPIF:
-                    case OpCode.JMPLE:
-                    case OpCode.JMPLT:
-                    case OpCode.JMPNE:
-                    case OpCode.JMPIFNOT:
-                    case OpCode.JMPEQ:
-                    case OpCode.JMPGE:
-                    case OpCode.JMPGT: Jump = new JumpI8(this); break;
-                }
-            }
-
-            /// <summary>
-            /// Serialize
-            /// </summary>
-            /// <param name="stream">Stream</param>
-            public void Serialize(Stream stream)
-            {
-                stream.WriteByte((byte)OpCode);
-
-                int operandSizePrefix = OperandSizePrefixTable[(int)OpCode];
-
-                switch (operandSizePrefix)
-                {
-                    case 0: break;
-                    case 1:
-                        {
-                            stream.WriteByte((byte)Operand.Length);
-                            break;
-                        }
-                    case 2:
-                        {
-                            var operandSize = BitConverter.GetBytes((ushort)Operand.Length);
-                            stream.Write(operandSize, 0, operandSize.Length);
-                            break;
-                        }
-                    case 4:
-                        {
-                            var operandSize = BitConverter.GetBytes((int)Operand.Length);
-                            stream.Write(operandSize, 0, operandSize.Length);
-                            break;
-                        }
-                }
-
-                if (Operand?.Length > 0)
-                {
-                    stream.Write(Operand, 0, Operand.Length);
-                }
-            }
-        }
-
         /// <summary>
         /// Instructions
         /// </summary>
-        public readonly List<NefInstruction> Instructions;
+        private List<INefItem> Items;
+
+        private List<IOptimizeParser> OptimizeFunctions = new List<IOptimizeParser>();
 
         /// <summary>
         /// Constructor
         /// </summary>
         /// <param name="script">Script</param>
-        public NefOptimizer(byte[] script)
+        public NefOptimizer(byte[] script = null)
         {
-            Instructions = new List<NefInstruction>();
-
-            for (int offset = 0; offset < script.Length;)
+            if (script != null)
             {
-                var instruction = new NefInstruction(script, offset);
-                offset += instruction.Size;
-
-                Instructions.Add(instruction);
+                using (var ms = new MemoryStream(script))
+                {
+                    LoadNef(ms);
+                }
             }
+        }
+
+        public void AddOptimizeParser(IOptimizeParser function)
+        {
+            if (OptimizeFunctions == null)
+                OptimizeFunctions = new List<IOptimizeParser>();
+            OptimizeFunctions.Add(function);
         }
 
         /// <summary>
         /// Optimize
         /// </summary>
-        /// <returns>Obtimized contract</returns>
-        public byte[] Optimize()
+        public void Optimize()
         {
-            RemoveNops();
-            RecalculeLongJumps();
-
-            return Dump();
-        }
-
-        /// <summary>
-        /// Dump
-        /// </summary>
-        /// <returns>Nef</returns>
-        private byte[] Dump()
-        {
-            using (var stream = new MemoryStream())
+            if (OptimizeFunctions == null || OptimizeFunctions.Count == 0)
+                return;
+            for (var i = 0; i < OptimizeFunctions.Count; i++)
             {
-                foreach (var instruction in Instructions)
-                {
-                    instruction.Serialize(stream);
-                }
-
-                return stream.ToArray();
+                var func = OptimizeFunctions[i];
+                if (i > 0 && func.NeedRightAddr)
+                    RefillAddr();
+                func.Parse(this.Items);
             }
         }
 
         /// <summary>
-        /// Remove nops
+        /// Step01 Load
         /// </summary>
-        private void RemoveNops()
+        /// <param name="stream">Stream</param>
+        public void LoadNef(Stream stream)
         {
-            for (int x = 0; x < Instructions.Count;)
-            {
-                var ins = Instructions[x];
+            //read all Instruction to listInst
+            var listInst = new List<NefInstruction>();
+            //read all Address to listAddr
+            var mapLabel = new Dictionary<int, NefLabel>();
+            int labelindex = 1;
 
-                if (ins.OpCode == OpCode.NOP)
+            NefInstruction inst;
+            do
+            {
+                inst = NefInstruction.ReadFrom(stream);
+                if (inst != null)
                 {
-                    RemoveAt(x);
+                    listInst.Add(inst);
+                    if (inst.AddressCountInData > 0)
+                    {
+                        for (var i = 0; i < inst.AddressCountInData; i++)
+                        {
+                            var addr = inst.GetAddressInData(i) + inst.Offset;
+                            if (!mapLabel.ContainsKey(addr))
+                            {
+                                var labelname = "label" + labelindex.ToString("D06");
+                                labelindex++;
+                                var label = new NefLabel(labelname, addr);
+                                mapLabel.Add(addr, label);
+                            }
+
+                            inst.Labels[i] = mapLabel[addr].Name;
+                        }
+                    }
                 }
-                else
+            } while (inst != null);
+
+            //Add Labels
+            if (Items == null)
+                Items = new List<INefItem>();
+            else
+                Items.Clear();
+            foreach (var instruction in listInst)
+            {
+                var curOffset = instruction.Offset;
+                if (mapLabel.ContainsKey(curOffset))
                 {
-                    x++;
+                    Items.Add(mapLabel[curOffset]);
                 }
+                Items.Add(instruction);
             }
         }
 
         /// <summary>
-        /// Recalculate long jumps
+        /// Step03 Link
         /// </summary>
-        private void RecalculeLongJumps()
+        void RefillAddr()
         {
-            for (int x = 0; x < Instructions.Count;)
+            var mapLabel2Addr = new Dictionary<string, uint>();
+            //Recalc Address
+            //collection Labels and Resort Offset
+            uint Offset = 0;
+            foreach (var item in this.Items)
             {
-                var ins = Instructions[x++];
-
-                if (ins.OpCode == OpCode.PUSHA ||
-                    !(ins.Jump is JumpI32 jmp)) continue;
-
-                if (jmp.Offset > sbyte.MaxValue) continue;
-                if (jmp.Offset < sbyte.MinValue) continue;
-
-                // Remove _L
-
-                ins.OpCode = (OpCode)(((byte)ins.OpCode) - 1);
-                ins.Operand = new byte[] { ins.Operand[0] };
-                ins.Size -= 3;
-                ins.Jump = new JumpI8(ins);
-
-                // Recalculate offsets
-
-                for (int index = x; index < Instructions.Count; index++)
+                if (item is NefInstruction inst)
                 {
-                    Instructions[index].Offset -= 3;
+                    inst.SetOffset((int)Offset);
+                    Offset += inst.CalcTotalSize;
                 }
-
-                // Recalculate jumps
-                RecalculateJumpsForLongJump(Instructions, ins.Offset, 3, ins.Jump.Offset);
-            }
-        }
-
-        /// <summary>
-        /// Remove At
-        /// </summary>
-        /// <param name="index">Index</param>
-        private void RemoveAt(int index)
-        {
-            // Find instructions
-
-            var remove = Instructions[index];
-            Instructions.RemoveAt(index);
-
-            // Recalculate offsets
-
-            for (int offset = remove.Offset; index < Instructions.Count; index++)
-            {
-                var ins = Instructions[index];
-                ins.Offset = offset;
-                offset += ins.Size;
+                else if (item is NefLabel label)
+                {
+                    label.SetOffset((int)Offset);
+                    mapLabel2Addr[label.Name] = Offset;
+                }
             }
 
-            // Recalculate jumps
-
-            RecalculateJumpsForRemoveInstruction(Instructions, remove.Offset, remove.Size);
-        }
-
-        /// <summary>
-        /// Recalculate jumps for remove instruction
-        /// </summary>
-        /// <param name="instructions">Instructions</param>
-        /// <param name="offset">Offset</param>
-        /// <param name="lessSize">Size</param>
-        private static void RecalculateJumpsForRemoveInstruction(IEnumerable<NefInstruction> instructions, int offset, int lessSize)
-        {
-            foreach (var instruction in instructions.Where(u => u.Jump != null))
+            //ChangeAddress
+            foreach (var item in this.Items)
             {
-                // Recalculate positive jumps
-
-                if (instruction.Offset < offset && instruction.Jump.Offset > 0 && instruction.Offset + instruction.Jump.Offset > offset)
+                if (item is NefInstruction inst)
                 {
-                    instruction.Jump.Offset -= lessSize;
-                }
-
-                // Recalculate negative jumps
-
-                else if (instruction.Offset >= offset && instruction.Jump.Offset < 0 && instruction.Offset + instruction.Jump.Offset < offset)
-                {
-                    instruction.Jump.Offset += lessSize;
+                    for (var i = 0; i < inst.AddressCountInData; i++)
+                    {
+                        var label = inst.Labels[i];
+                        var addr = (int)mapLabel2Addr[label] - inst.Offset;
+                        inst.SetAddressInData(i, addr);
+                    }
                 }
             }
         }
 
-        /// <summary>
-        /// Recalculate jumps for LongJump
-        /// </summary>
-        /// <param name="instructions">Instructions</param>
-        /// <param name="offset">Offset</param>
-        /// <param name="lessSize">Size</param>
-        /// <param name="jumpOffset">JumpOffset</param>
-        private static void RecalculateJumpsForLongJump(IEnumerable<NefInstruction> instructions, int offset, int lessSize, int jumpOffset)
+        public void LinkNef(Stream stream)
         {
-            foreach (var instruction in instructions.Where(u => u.Jump != null))
+            //Recalc Address
+            //collection Labels and Resort Offset
+            RefillAddr();
+
+            //and Link
+            foreach (var _inst in this.Items)
             {
-                if (instruction.Offset == offset && jumpOffset >= 0)
-                {
-                    instruction.Jump.Offset -= lessSize;
-                }
-
-                // Recalculate positive jumps
-
-                if (instruction.Offset < offset && instruction.Jump.Offset > 0 && instruction.Offset + instruction.Jump.Offset > offset)
-                {
-                    instruction.Jump.Offset -= lessSize;
-                }
-
-                // Recalculate negative jumps
-
-                else if (instruction.Offset > offset && instruction.Jump.Offset < 0 && instruction.Offset + instruction.Jump.Offset < offset)
-                {
-                    instruction.Jump.Offset += lessSize;
-                }
+                if (_inst is NefInstruction)
+                    NefInstruction.WriteTo(_inst as NefInstruction, stream);
             }
         }
     }
