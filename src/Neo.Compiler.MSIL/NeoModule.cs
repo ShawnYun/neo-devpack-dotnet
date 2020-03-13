@@ -18,6 +18,9 @@ namespace Neo.Compiler
         public Dictionary<string, NeoEvent> mapEvents = new Dictionary<string, NeoEvent>();
         public Dictionary<string, NeoField> mapFields = new Dictionary<string, NeoField>();
         public Dictionary<string, object> staticfieldsWithConstValue = new Dictionary<string, object>();
+        /// <summary>
+        /// cctor静态成员变量
+        /// </summary>
         public List<ILMethod> staticfieldsCctor = new List<ILMethod>();
         //小蚁没类型，只有方法
         public SortedDictionary<int, NeoCode> total_Codes = new SortedDictionary<int, NeoCode>();
@@ -147,7 +150,7 @@ namespace Neo.Compiler
         public NeoMethod() { }
 
         /// <summary>
-        /// Constructor
+        /// Constructor，根据ILMethod构造NeoMethod
         /// </summary>
         /// <param name="method">Method</param>
         public NeoMethod(ILMethod method)
@@ -155,10 +158,14 @@ namespace Neo.Compiler
             this.method = method;
             this.type = method.type;
 
+            // 命名空间
             _namespace = method.method.DeclaringType.FullName;
+            // 方法名
             name = method.method.FullName;
             displayName = method.method.Name[..1].ToLowerInvariant() + method.method.Name[1..];
+            // 是否为智能合约
             inSmartContract = method.method.DeclaringType.BaseType.Name == "SmartContract";
+            // 是否为public
             isPublic = method.method.IsPublic;
             foreach (var attr in method.method.CustomAttributes)
             {
@@ -281,9 +288,18 @@ namespace Neo.Compiler
         }
     }
 
+    /// <summary>
+    /// Neo方法的参数类
+    /// </summary>
     public class NeoParam
     {
+        /// <summary>
+        /// 参数名
+        /// </summary>
         public string name { get; private set; }
+        /// <summary>
+        /// 参数类型
+        /// </summary>
         public string type { get; private set; }
         public NeoParam(string name, string type)
         {

@@ -103,6 +103,7 @@ namespace Neo.Compiler
             var nspace = "";
             var itemGroups = projDefinition.Element("Project")?.Elements("ItemGroup").ToArray();
 
+            // 这是老版本的csproj格式
             if (itemGroups == null || itemGroups.Length == 0)
             {
                 // Try other version
@@ -184,7 +185,7 @@ namespace Neo.Compiler
         /// <param name="references">References</param>
         /// <returns>MetadataReferences</returns>
         private static MetadataReference[] CreateReferences(params string[] references)
-        {
+        {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
             var coreDir = Path.GetDirectoryName(typeof(object).Assembly.Location);
             var refs = new List<MetadataReference>(new MetadataReference[]
             {

@@ -11,6 +11,13 @@ namespace Neo.Compiler.MSIL
     /// </summary>
     public partial class ModuleConverter
     {
+        /// <summary>
+        /// 从计算堆栈的顶部弹出当前值并将其存储到指定索引处的局部变量列表中。
+        /// </summary>
+        /// <param name="method"></param>
+        /// <param name="src"></param>
+        /// <param name="to"></param>
+        /// <param name="pos"></param>
         private void _ConvertStLoc(ILMethod method, OpCode src, NeoMethod to, int pos)
         {
 
@@ -215,6 +222,12 @@ namespace Neo.Compiler.MSIL
                 }
         */
 
+        /// <summary>
+        /// 判断是否为AppCall,是appcall，则计算调用对应的hash
+        /// </summary>
+        /// <param name="defs"></param>
+        /// <param name="hash"></param>
+        /// <returns></returns>
         public bool IsAppCall(Mono.Cecil.MethodDefinition defs, out byte[] hash)
         {
             if (defs == null)
@@ -228,6 +241,7 @@ namespace Neo.Compiler.MSIL
                 {
                     var type = attr.ConstructorArguments[0].Type;
                     var a = attr.ConstructorArguments[0];
+                    // 调用为String的情况
                     if (a.Type.FullName == "System.String")
                     {
                         string hashstr = (string)a.Value;
@@ -247,6 +261,7 @@ namespace Neo.Compiler.MSIL
                             throw new Exception("hex format error:" + hashstr);
                         }
                     }
+                    // 为Hash的情况
                     else
                     {
 

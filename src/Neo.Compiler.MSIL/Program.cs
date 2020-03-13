@@ -142,7 +142,7 @@ namespace Neo.Compiler
             }
 
             ILModule mod = new ILModule(log);
-
+            // 加载好的fs和pdb
             // Load module
             try
             {
@@ -163,6 +163,7 @@ namespace Neo.Compiler
             {
                 var conv = new ModuleConverter(log);
                 ConvOption option = new ConvOption();
+                // 进行转换
                 module = conv.Convert(mod, option);
                 bytes = module.Build();
                 log.Log("convert succ");

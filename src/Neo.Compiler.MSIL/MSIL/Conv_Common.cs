@@ -9,6 +9,14 @@ namespace Neo.Compiler.MSIL
     /// </summary>
     public partial class ModuleConverter
     {
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="code"></param>
+        /// <param name="comment"></param>
+        /// <param name="to"></param>
+        /// <param name="data"></param>
+        /// <returns></returns>
         private NeoCode _Insert1(VM.OpCode code, string comment, NeoMethod to, byte[] data = null)
         {
             NeoCode _code = new NeoCode();
@@ -59,6 +67,13 @@ namespace Neo.Compiler.MSIL
             return _Insert1(code, comment, to, bytes);
         }
 
+        /// <summary>
+        /// 插入PUSH指令
+        /// </summary>
+        /// <param name="i"></param>
+        /// <param name="comment"></param>
+        /// <param name="to"></param>
+        /// <returns></returns>
         private NeoCode _InsertPush(int i, string comment, NeoMethod to)
         {
             if (i == 0) return _Insert1(VM.OpCode.PUSH0, comment, to);
@@ -94,6 +109,13 @@ namespace Neo.Compiler.MSIL
             return _code;
         }
 
+        /// <summary>
+        /// PUSH字节数组
+        /// </summary>
+        /// <param name="data"></param>
+        /// <param name="src"></param>
+        /// <param name="to"></param>
+        /// <returns></returns>
         private NeoCode _ConvertPush(byte[] data, OpCode src, NeoMethod to)
         {
             if (data.Length == 0) return _Convert1by1(VM.OpCode.PUSH0, src, to);
@@ -121,6 +143,13 @@ namespace Neo.Compiler.MSIL
             return _Convert1by1(code, src, to, bytes);
         }
 
+        /// <summary>
+        /// 转换PUSH指令
+        /// </summary>
+        /// <param name="i"></param>
+        /// <param name="src"></param>
+        /// <param name="to"></param>
+        /// <returns></returns>
         private NeoCode _ConvertPush(long i, OpCode src, NeoMethod to)
         {
             if (i == 0) return _Convert1by1(VM.OpCode.PUSH0, src, to);
@@ -226,6 +255,10 @@ namespace Neo.Compiler.MSIL
             }
         }
 
+        /// <summary>
+        /// 对入口main函数操作
+        /// </summary>
+        /// <param name="to"></param>
         private void _insertSharedStaticVarCode(NeoMethod to)
         {
             //insert init constvalue part

@@ -46,9 +46,24 @@ namespace Neo.Compiler.MSIL
         }
 
         private readonly ILogger logger;
+        /// <summary>
+        /// 将输出的NeoModule
+        /// </summary>
         public NeoModule outModule;
+        /// <summary>
+        /// 输入进来的原始ILModule
+        /// </summary>
         private ILModule inModule;
+        /// <summary>
+        /// ILMethod与NeoMethod对应字典
+        /// </summary>
         public Dictionary<ILMethod, NeoMethod> methodLink = new Dictionary<ILMethod, NeoMethod>();
+        /// <summary>
+        /// 用于将ILModule转换为NeoModule
+        /// </summary>
+        /// <param name="_in">输入ILModule</param>
+        /// <param name="option">转换选项</param>
+        /// <returns>返回转换后的NeoModule</returns>
         public NeoModule Convert(ILModule _in, ConvOption option = null)
         {
             this.inModule = _in;
@@ -69,6 +84,7 @@ namespace Neo.Compiler.MSIL
                     if (m.Value.method == null) continue;
                     if (m.Value.method.IsAddOn || m.Value.method.IsRemoveOn)
                         continue;//event 自动生成的代码，不要
+                    // 静态构造函数
                     if (m.Value.method.Is_cctor())
                     {
                         //if cctor contains sth can not be as a const value.
@@ -99,6 +115,7 @@ namespace Neo.Compiler.MSIL
                 }
             }
 
+            // 对methods进行转换
             var keys = new List<string>(_in.mapType.Keys);
             foreach (var key in keys)
             {
@@ -159,6 +176,7 @@ namespace Neo.Compiler.MSIL
                                 nm.isEntry = true;
                             }
                         }
+                        // 开始转换
                         this.ConvertMethod(m.Value, nm);
                     }
                     //catch (Exception err)
@@ -330,6 +348,7 @@ namespace Neo.Compiler.MSIL
             return true;
         }
 
+        // 连接
         private void LinkCode(string main)
         {
             if (this.outModule.mapMethods.ContainsKey(main) == false)
@@ -340,6 +359,7 @@ namespace Neo.Compiler.MSIL
             first.funcaddr = 0;
             this.outModule.total_Codes.Clear();
             int addr = 0;
+            // 第一遍循环检查地址是否正确
             foreach (var c in first.body_Codes)
             {
                 if (addr != c.Key)
@@ -411,6 +431,12 @@ namespace Neo.Compiler.MSIL
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="from"></param>
+        /// <param name="to"></param>
+        /// <param name="withReturn"></param>
         private void FillMethod(ILMethod from, NeoMethod to, bool withReturn)
         {
             int skipcount = 0;
@@ -533,6 +559,13 @@ namespace Neo.Compiler.MSIL
             }
         }
 
+        /// <summary>
+        /// 操作码转换
+        /// </summary>
+        /// <param name="method"></param>
+        /// <param name="src"></param>
+        /// <param name="to"></param>
+        /// <returns></returns>
         private int ConvertCode(ILMethod method, OpCode src, NeoMethod to)
         {
             int skipcount = 0;

@@ -10,7 +10,13 @@ namespace Neo.Compiler.MSIL
     public class ILModule
     {
         public Mono.Cecil.ModuleDefinition module = null;
+        /// <summary>
+        /// 引用
+        /// </summary>
         public List<string> moduleref = new List<string>();
+        /// <summary>
+        /// Type名与对应的ILType
+        /// </summary>
         public Dictionary<string, ILType> mapType = new Dictionary<string, ILType>();
         public ILogger logger;
         public ILModule(ILogger _logger = null)
@@ -19,13 +25,16 @@ namespace Neo.Compiler.MSIL
         }
         public void LoadModule(System.IO.Stream dllStream, System.IO.Stream pdbStream)
         {
+            // 从dll中读取moudle
             this.module = Mono.Cecil.ModuleDefinition.ReadModule(dllStream);
             if (pdbStream != null)
             {
+                // pdb不为空则加载pdb
                 var debugInfoLoader = new Mono.Cecil.Pdb.PdbReaderProvider();
 
                 module.ReadSymbols(debugInfoLoader.GetSymbolReader(module, pdbStream));
             }
+            // 有AssemblyReferences则加入moduleref
             if (module.HasAssemblyReferences)
             {
                 foreach (var ar in module.AssemblyReferences)
@@ -45,6 +54,7 @@ namespace Neo.Compiler.MSIL
                         continue;
 
                     mapType[t.FullName] = new ILType(this, t, logger);
+                    // 嵌套类型
                     if (t.HasNestedTypes)
                     {
                         foreach (var nt in t.NestedTypes)
@@ -59,23 +69,32 @@ namespace Neo.Compiler.MSIL
 
     public class ILType
     {
+        /// <summary>
+        /// 记录了ILType中所有fields名字与ILField对应的字典
+        /// </summary>
         public Dictionary<string, ILField> fields = new Dictionary<string, ILField>();
+        /// <summary>
+        /// 记录了ILType中所有methods名字与ILMethod对应的字典
+        /// </summary>
         public Dictionary<string, ILMethod> methods = new Dictionary<string, ILMethod>();
         public List<Mono.Cecil.CustomAttribute> attributes = new List<Mono.Cecil.CustomAttribute>();
 
         public ILType(ILModule module, Mono.Cecil.TypeDefinition type, ILogger logger)
         {
+            // 添加attributes
             if (type.HasCustomAttributes && type.IsClass)
             {
                 attributes.AddRange(type.CustomAttributes);
             }
-
+            // 添加fields
             foreach (Mono.Cecil.FieldDefinition f in type.Fields)
             {
                 this.fields.Add(f.Name, new ILField(this, f));
             }
+            // 添加methods
             foreach (Mono.Cecil.MethodDefinition m in type.Methods)
             {
+                // 无法导出非static函数
                 if (m.IsStatic == false)
                 {
                     var method = new ILMethod(this, null, logger);
@@ -84,6 +103,7 @@ namespace Neo.Compiler.MSIL
                 }
                 else
                 {
+                    // 构造对应的ILMethod
                     var method = new ILMethod(this, m, logger);
                     if (methods.ContainsKey(m.FullName))
                     {
@@ -199,15 +219,45 @@ namespace Neo.Compiler.MSIL
 
     public class ILMethod
     {
+        /// <summary>
+        /// ILMethod对应的ILType
+        /// </summary>
         public ILType type = null;
+        /// <summary>
+        /// 方法
+        /// </summary>
         public Mono.Cecil.MethodDefinition method;
+        /// <summary>
+        /// 方法返回类型
+        /// </summary>
         public string returntype;
+        /// <summary>
+        /// 方法参数列表
+        /// </summary>
         public List<NeoParam> paramtypes = new List<NeoParam>();
+        /// <summary>
+        /// 方法是否有参数
+        /// </summary>
         public bool hasParam = false;
+        /// <summary>
+        /// 方法的函数变量
+        /// </summary>
         public List<NeoParam> body_Variables = new List<NeoParam>();
+        /// <summary>
+        /// 方法中代码与地址对应字典
+        /// </summary>
         public SortedDictionary<int, OpCode> body_Codes = new SortedDictionary<int, OpCode>();
+        /// <summary>
+        /// 失败原因
+        /// </summary>
         public string fail = null;
 
+        /// <summary>
+        /// ILMethod构造函数
+        /// </summary>
+        /// <param name="type"></param>
+        /// <param name="method"></param>
+        /// <param name="logger"></param>
         public ILMethod(ILType type, Mono.Cecil.MethodDefinition method, ILogger logger = null)
         {
             this.type = type;
@@ -215,16 +265,20 @@ namespace Neo.Compiler.MSIL
 
             if (method != null)
             {
+                // 返回类型，例如System.Void
                 returntype = method.ReturnType.FullName;
+                // 函数的参数
                 if (method.HasParameters)
                 {
                     hasParam = true;
                     foreach (var p in method.Parameters)
                     {
+                        // 参数类型名
                         string paramtype = p.ParameterType.FullName;
                         try
                         {
                             var _type = p.ParameterType.Resolve();
+                            // 参数接口名
                             foreach (var i in _type.Interfaces)
                             {
                                 if (i.InterfaceType.Name == "IApiInterface")
@@ -236,12 +290,15 @@ namespace Neo.Compiler.MSIL
                         catch
                         {
                         }
+                        // 构造对应NeoParam，添加入paramtypes
                         this.paramtypes.Add(new NeoParam(p.Name, paramtype));
                     }
                 }
+                // 如果有函数体
                 if (method.HasBody)
                 {
                     var bodyNative = method.Body;
+                    // 有函数变量，则添加进body_Variables
                     if (bodyNative.HasVariables)
                     {
                         foreach (var v in bodyNative.Variables)
@@ -250,6 +307,7 @@ namespace Neo.Compiler.MSIL
                             this.body_Variables.Add(new NeoParam(indexname, v.VariableType.FullName));
                         }
                     }
+                    // 对函数指令，依次转化为指定指令格式，并保存指令和地址
                     for (int i = 0; i < bodyNative.Instructions.Count; i++)
                     {
                         var code = bodyNative.Instructions[i];
@@ -258,14 +316,16 @@ namespace Neo.Compiler.MSIL
                             code = (CodeEx)(int)code.OpCode.Code,
                             addr = code.Offset
                         };
-
+                        // Debug信息
                         var sp = method.DebugInformation.GetSequencePoint(code);
                         if (sp != null)
                         {
                             c.debugcode = sp.Document.Url;
                             c.debugline = sp.StartLine;
                         }
+                        // 操作数转换
                         c.InitToken(code.Operand);
+                        // body_Codes加入addr和code
                         this.body_Codes.Add(c.addr, c);
                     }
                 }
@@ -283,6 +343,12 @@ namespace Neo.Compiler.MSIL
             }
             return last;
         }
+
+        /// <summary>
+        /// 获取下个代码的地址
+        /// </summary>
+        /// <param name="srcaddr">当前代码地址</param>
+        /// <returns></returns>
         public int GetNextCodeAddr(int srcaddr)
         {
             bool bskip = false;
@@ -303,6 +369,9 @@ namespace Neo.Compiler.MSIL
         }
     }
 
+    /// <summary>
+    /// 指令集
+    /// </summary>
     public enum CodeEx
     {
         Nop,
@@ -526,24 +595,69 @@ namespace Neo.Compiler.MSIL
         Readonly,
     }
 
+    /// <summary>
+    /// 操作码
+    /// </summary>
     public class OpCode
     {
+        /// <summary>
+        /// Token值类型
+        /// </summary>
         public TokenValueType tokenValueType = TokenValueType.Nothing;
+        /// <summary>
+        /// 地址(offset)
+        /// </summary>
         public int addr;
+        /// <summary>
+        /// CodeEx指令
+        /// </summary>
         public CodeEx code;
+        /// <summary>
+        /// debug开始位置
+        /// </summary>
         public int debugline = -1;
+        /// <summary>
+        /// debug代码
+        /// </summary>
         public string debugcode;
+        /// <summary>
+        /// 
+        /// </summary>
         public object tokenUnknown;
+        /// <summary>
+        /// 控制转移到的目标指令的地址offset,控制转移类指令会用到，如Leave、Br等。
+        /// </summary>
         public int tokenAddr_Index;
         //public int tokenAddr;
+        /// <summary>
+        /// 跳转表
+        /// </summary>
         public int[] tokenAddr_Switch;
+        /// <summary>
+        /// token的类型
+        /// </summary>
         public string tokenType;
         public string tokenField;
         public string tokenMethod;
+        /// <summary>
+        /// token为Int32类型时对应的值
+        /// </summary>
         public int tokenI32;
+        /// <summary>
+        /// token为Int64类型时对应的值
+        /// </summary>
         public Int64 tokenI64;
+        /// <summary>
+        /// token为Float32(float)类型时对应的值
+        /// </summary>
         public float tokenR32;
+        /// <summary>
+        /// token为Float64(double)类型时对应的值
+        /// </summary>
         public double tokenR64;
+        /// <summary>
+        /// token为字符串类型时对应的值
+        /// </summary>
         public string tokenStr;
 
         public override string ToString()
@@ -610,7 +724,9 @@ namespace Neo.Compiler.MSIL
                 case CodeEx.Blt_Un:
                 case CodeEx.Blt_Un_S:
                     //this.tokenAddr = ((Mono.Cecil.Cil.Instruction)_p).Offset;
+                    // 以上为跳转到目标指令的地址，tokenAddr_Index为跳转目标指令的地址offset
                     this.tokenAddr_Index = ((Mono.Cecil.Cil.Instruction)_p).Offset;
+                    // Token值类型为地址类型Addr
                     this.tokenValueType = TokenValueType.Addr;
                     break;
                 case CodeEx.Isinst:
@@ -620,6 +736,7 @@ namespace Neo.Compiler.MSIL
                 case CodeEx.Castclass:
                 case CodeEx.Newarr:
                     this.tokenType = (_p as Mono.Cecil.TypeReference).FullName;
+                    // 以上指令的操作数都是一个类型值，例如Newarr一个int.
                     this.tokenValueType = TokenValueType.Type;
                     this.tokenUnknown = _p;
                     break;
@@ -631,6 +748,7 @@ namespace Neo.Compiler.MSIL
                 case CodeEx.Stsfld:
                     this.tokenField = (_p as Mono.Cecil.FieldReference).FullName;
                     this.tokenUnknown = _p;
+                    // 以上指令的操作数为引用类型
                     this.tokenValueType = TokenValueType.Field;
                     break;
                 case CodeEx.Call:
@@ -641,6 +759,7 @@ namespace Neo.Compiler.MSIL
 
                     this.tokenMethod = (_p as Mono.Cecil.MethodReference).FullName;
                     this.tokenUnknown = _p;
+                    // 以上指令的操作数为一个方法
                     this.tokenValueType = TokenValueType.Method;
                     break;
                 case CodeEx.Ldc_I4:
@@ -713,6 +832,7 @@ namespace Neo.Compiler.MSIL
                 case CodeEx.Ldloca_S:
                 case CodeEx.Ldloc_S:
                 case CodeEx.Stloc_S:
+                    // 以上指令的操作数为特定索引处的局部变量的地址
                     this.tokenI32 = ((Mono.Cecil.Cil.VariableDefinition)_p).Index;
                     this.tokenValueType = TokenValueType.I32;
 
@@ -749,6 +869,7 @@ namespace Neo.Compiler.MSIL
                 case CodeEx.Ldarga_S:
                 case CodeEx.Starg:
                 case CodeEx.Starg_S:
+                    // 以上指令的操作数为参数地址
                     this.tokenI32 = (_p as Mono.Cecil.ParameterDefinition).Index;
                     this.tokenValueType = TokenValueType.I32;
 
@@ -791,11 +912,14 @@ namespace Neo.Compiler.MSIL
                     break;
 
                 case CodeEx.Ldtoken:
+                    // 指令将元数据标记转换为其运行时表示形式，并将其推送到计算堆栈上。
                     var def = (_p as Mono.Cecil.FieldDefinition);
+                    // 类型为元数据
                     this.tokenUnknown = def.InitialValue;
                     this.tokenValueType = TokenValueType.Nothing;
                     break;
                 default:
+                    // 其他情况默认Nothing
                     this.tokenUnknown = _p;
                     this.tokenValueType = TokenValueType.Nothing;
                     break;

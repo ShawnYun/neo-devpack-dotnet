@@ -7,8 +7,16 @@ namespace Neo.Compiler.MSIL
     class CctorSubVM
     {
         private const ushort MaxArraySize = ushort.MaxValue;
+        /// <summary>
+        /// 计算栈
+        /// </summary>
         private static Stack<object> calcStack;
 
+        /// <summary>
+        /// 复制计算堆栈上当前最顶端的值，然后将副本推送到计算堆栈上。
+        /// </summary>
+        /// <param name="src"></param>
+        /// <returns></returns>
         public static object Dup(object src)
         {
             if (src.GetType() == typeof(byte[]))
@@ -38,6 +46,12 @@ namespace Neo.Compiler.MSIL
             }
         }
 
+        /// <summary>
+        /// 用于将静态构造函数转为NeoModule
+        /// </summary>
+        /// <param name="from">静态构造函数cctor</param>
+        /// <param name="to"></param>
+        /// <returns></returns>
         public static bool Parse(ILMethod from, NeoModule to)
         {
             bool constValue = true;
@@ -199,6 +213,7 @@ namespace Neo.Compiler.MSIL
                             }
                         }
                         break;
+                    // 用新值替换在对象引用或指针的字段中存储的值。
                     case CodeEx.Stsfld:
                         {
                             var field = src.tokenUnknown as Mono.Cecil.FieldReference;
@@ -215,6 +230,7 @@ namespace Neo.Compiler.MSIL
                             // field.DeclaringType.FullName + "::" + field.Name;
                         }
                         break;
+                    // 用计算堆栈上的 int8 值替换给定索引处的数组元素。
                     case CodeEx.Stelem_I1:
                         {
                             var v = (byte)(int)calcStack.Pop();
