@@ -1,5 +1,7 @@
 using Mono.Cecil;
+using CommandLine;
 using Neo.Compiler.MSIL;
+using Neo.Compiler.Optimizer;
 using Neo.SmartContract;
 using Neo.SmartContract.Manifest;
 using System;
@@ -13,40 +15,34 @@ namespace Neo.Compiler
 {
     public class Program
     {
-        //Console.WriteLine("helo ha:"+args[0]); //普通输出
-        //Console.WriteLine("<WARN> 这是一个严重的问题。");//警告输出，黄字
-        //Console.WriteLine("<WARN|aaaa.cs(1)> 这是ee一个严重的问题。");//警告输出，带文件名行号
-        //Console.WriteLine("<ERR> 这是一个严重的问题。");//错误输出，红字
-        //Console.WriteLine("<ERR|aaaa.cs> 这是ee一个严重的问题。");//错误输出，带文件名
-        //Console.WriteLine("SUCC");//输出这个表示编译成功
-        //控制台输出约定了特别的语法
+        public class Options
+        {
+            [Option('f', "file", Required = true, HelpText = "File for compile.")]
+            public string File { get; set; }
+
+            [Option('o', "optimize", Required = false, HelpText = "Optimize.")]
+            public bool Optimize { get; set; } = false;
+        }
+
         public static void Main(string[] args)
+        {
+            Parser.Default.ParseArguments<Options>(args).WithParsed(o => Environment.ExitCode = Compile(o));
+        }
+
+        public static int Compile(Options options)
         {
             // Set console
             Console.OutputEncoding = Encoding.UTF8;
             var log = new DefLogger();
             log.Log("Neo.Compiler.MSIL console app v" + Assembly.GetEntryAssembly().GetName().Version);
 
-            // Check argmuents
-            if (args.Length == 0)
-            {
-                log.Log("You need a parameter to specify the DLL or the file name of the project.");
-                log.Log("Examples: ");
-                log.Log("  neon mySmartContract.dll");
-                log.Log("  neon mySmartContract.csproj");
-
-                Environment.Exit(-1);
-                return;
-            }
-
-            var fileInfo = new FileInfo(args[0]);
+            var fileInfo = new FileInfo(options.File);
 
             // Set current directory
             if (!fileInfo.Exists)
             {
                 log.Log("Could not find file " + fileInfo.FullName);
-                Environment.Exit(-1);
-                return;
+                return -1;
             }
 
             Stream fs;
@@ -63,8 +59,7 @@ namespace Neo.Compiler
                 catch
                 {
                     log.Log("Could not find path: " + path);
-                    Environment.Exit(-1);
-                    return;
+                    return -1;
                 }
             }
 
@@ -95,7 +90,7 @@ namespace Neo.Compiler
                         // Compile C# files
 
                         log.Log("Compiling from c# source");
-                        var output = Compiler.CompileCSFile(new string[] { fileInfo.FullName }, new string[0]);
+                        var output = Compiler.CompileCSFiles(new string[] { fileInfo.FullName }, new string[0]);
                         fs = new MemoryStream(output.Dll);
                         fspdb = new MemoryStream(output.Pdb);
                         break;
@@ -105,7 +100,7 @@ namespace Neo.Compiler
                         // Compile VB files
 
                         log.Log("Compiling from VB source");
-                        var output = Compiler.CompileVBFile(new string[] { fileInfo.FullName }, new string[0]);
+                        var output = Compiler.CompileVBFiles(new string[] { fileInfo.FullName }, new string[0]);
                         fs = new MemoryStream(output.Dll);
                         fspdb = new MemoryStream(output.Pdb);
                         break;
@@ -131,15 +126,14 @@ namespace Neo.Compiler
                         catch (Exception err)
                         {
                             log.Log("Open File Error:" + err.ToString());
-                            return;
+                            return -1;
                         }
                         break;
                     }
                 default:
                     {
                         log.Log("File format not supported by neon: " + path);
-                        Environment.Exit(-1);
-                        return;
+                        return -1;
                     }
             }
 
@@ -153,7 +147,7 @@ namespace Neo.Compiler
             catch (Exception err)
             {
                 log.Log("LoadModule Error:" + err.ToString());
-                return;
+                return -1;
             }
             byte[] bytes;
             int bSucc = 0;
@@ -168,6 +162,13 @@ namespace Neo.Compiler
                 module = conv.Convert(mod, option);
                 bytes = module.Build();
                 log.Log("convert succ");
+
+                if (options.Optimize)
+                {
+                    var optimize = NefOptimizeTool.Optimize(bytes);
+                    log.Log("optimization succ " + (((bytes.Length / (optimize.Length + 0.0)) * 100.0) - 100).ToString("0.00 '%'"));
+                    bytes = optimize;
+                }
 
                 try
                 {
@@ -186,7 +187,7 @@ namespace Neo.Compiler
             catch (Exception err)
             {
                 log.Log("Convert Error:" + err.ToString());
-                return;
+                return -1;
             }
 
             // Write bytes
@@ -216,7 +217,7 @@ namespace Neo.Compiler
             catch (Exception err)
             {
                 log.Log("Write Bytes Error:" + err.ToString());
-                return;
+                return -1;
             }
 
             try
@@ -231,7 +232,7 @@ namespace Neo.Compiler
             catch (Exception err)
             {
                 log.Log("Write abi Error:" + err.ToString());
-                return;
+                return -1;
             }
 
             try
@@ -261,7 +262,7 @@ namespace Neo.Compiler
             catch (Exception err)
             {
                 log.Log("Write manifest Error:" + err.ToString());
-                return;
+                return -1;
             }
 
             try
@@ -272,13 +273,15 @@ namespace Neo.Compiler
             }
             catch
             {
-
             }
 
             if (bSucc == 3)
             {
                 log.Log("SUCC");
+                return 0;
             }
+
+            return -1;
         }
 
         private static string BuildExtraAttributes(List<Mono.Collections.Generic.Collection<CustomAttributeArgument>> extraAttributes)
