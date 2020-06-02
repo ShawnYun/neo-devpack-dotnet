@@ -2,6 +2,7 @@ using Neo.SmartContract;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace Neo.Compiler.MSIL
 {
@@ -10,6 +11,8 @@ namespace Neo.Compiler.MSIL
     /// </summary>
     public partial class ModuleConverter
     {
+        static readonly Regex _funcInvokeRegex = new Regex(@"\!0\sSystem\.Func\`[0-9]+\<.*\>\:\:Invoke\(\)");
+
         private void ConvertStLoc(OpCode src, NeoMethod to, int pos)
         {
             if (pos < 7)
@@ -63,7 +66,7 @@ namespace Neo.Compiler.MSIL
             try
             {
                 var dtype = type.Resolve();
-                if (dtype.BaseType.FullName == "System.MulticastDelegate" || dtype.BaseType.FullName == "System.Delegate")
+                if (dtype.BaseType != null && (dtype.BaseType.FullName == "System.MulticastDelegate" || dtype.BaseType.FullName == "System.Delegate"))
                 {
                     foreach (var m in dtype.Methods)
                     {
@@ -85,7 +88,7 @@ namespace Neo.Compiler.MSIL
             try
             {
                 var ptype = method.method.Parameters[pos].ParameterType.Resolve();
-                if (ptype.BaseType.FullName == "System.MulticastDelegate" || ptype.BaseType.FullName == "System.Delegate")
+                if (ptype.BaseType != null && (ptype.BaseType.FullName == "System.MulticastDelegate" || ptype.BaseType.FullName == "System.Delegate"))
                 {
                     foreach (var m in ptype.Methods)
                     {
@@ -485,6 +488,11 @@ namespace Neo.Compiler.MSIL
 
                     return 0;
                 }
+                else if (_funcInvokeRegex.IsMatch(src.tokenMethod))
+                {
+                    // call pointer
+                    calltype = 3;
+                }
                 else if (src.tokenMethod == "System.Object System.Runtime.CompilerServices.RuntimeHelpers::GetObjectValue(System.Object)")
                 {
                     //this is for vb.net
@@ -493,7 +501,6 @@ namespace Neo.Compiler.MSIL
                 else if (src.tokenMethod == "System.Void System.Diagnostics.Debugger::Break()")
                 {
                     Convert1by1(VM.OpCode.NOP, src, to);
-
                     return 0;
                 }
                 else if (src.tokenMethod.Contains("::op_Equality(") || src.tokenMethod.Contains("::Equals("))
@@ -509,7 +516,6 @@ namespace Neo.Compiler.MSIL
                     else
                     {
                         Convert1by1(VM.OpCode.EQUAL, src, to);
-
                     }
                     //if (src.tokenMethod == "System.Boolean System.String::op_Equality(System.String,System.String)")
                     //{
@@ -653,7 +659,7 @@ namespace Neo.Compiler.MSIL
                 }
                 else if (src.tokenMethod == "System.Byte[] System.Numerics.BigInteger::ToByteArray()")
                 {
-                    Convert1by1(VM.OpCode.CONVERT, src, to, new byte[] { 0x28 });
+                    Convert1by1(VM.OpCode.CONVERT, src, to, new byte[] { (byte)VM.Types.StackItemType.Buffer });
                     return 0;
                 }
                 else if (src.tokenMethod == "System.Void System.Numerics.BigInteger::.ctor(System.Byte[])")
@@ -672,9 +678,6 @@ namespace Neo.Compiler.MSIL
                 {
                     Convert1by1(VM.OpCode.SHR, src, to);
                     return 0;
-                }
-                else
-                {
                 }
             }
 
@@ -753,7 +756,6 @@ namespace Neo.Compiler.MSIL
                 c.srcfunc = src.tokenMethod;
                 return 0;
             }
-
             else if (calltype == 2)
             {
                 Convert1by1(callcodes[0], src, to, Helper.OpDataToBytes(calldata[0]));
@@ -828,6 +830,10 @@ namespace Neo.Compiler.MSIL
                 ConvertPushNumber(callpcount, src, to);
                 Convert1by1(VM.OpCode.ROLL, null, to);
                 Convert1by1(VM.OpCode.SYSCALL, null, to, BitConverter.GetBytes(InteropService.Contract.Call));
+            }
+            else if (calltype == 3)
+            {
+                Convert1by1(VM.OpCode.CALLA, null, to);
             }
             return 0;
         }
@@ -1179,7 +1185,7 @@ namespace Neo.Compiler.MSIL
                     // System.Byte or System.SByte
                     var data = method.body_Codes[n2].tokenUnknown as byte[];
                     this.ConvertPushDataArray(data, src, to);
-
+                    Insert1(VM.OpCode.CONVERT, "", to, new byte[] { (byte)VM.Types.StackItemType.Buffer });
                     return 3;
                 }
                 else
@@ -1227,6 +1233,7 @@ namespace Neo.Compiler.MSIL
                         if (bLdLoc == false)//It means there's no initialization at all
                         {
                             this.ConvertPushDataArray(outbyte, src, to);
+                            Insert1(VM.OpCode.CONVERT, "", to, new byte[] { (byte)VM.Types.StackItemType.Buffer });
                             return 0;
                         }
                         while (true)
@@ -1254,11 +1261,12 @@ namespace Neo.Compiler.MSIL
                             }
                             else if (bLdLoc && !bStelem)
                             {
-                                //This is not a predictive array initialization, we lost one case for handling
+                                // This is not a predictive array initialization, we lost one case for handling
                                 this.ConvertPushDataArray(outbyte, src, to);
                                 // Two cases here
                                 if (skip == 1)
                                 {
+                                    Insert1(VM.OpCode.CONVERT, "", to, new byte[] { (byte)VM.Types.StackItemType.Buffer });
                                     return 0; // Without initialization, the first stloc cannot be skipped
                                 }
                                 else
@@ -1275,6 +1283,7 @@ namespace Neo.Compiler.MSIL
                     //Sometimes c# will use the real value for initialization. If the value is byte, it may be an error
 
                     this.ConvertPushDataArray(outbyte, src, to);
+                    Insert1(VM.OpCode.CONVERT, "", to, new byte[] { (byte)VM.Types.StackItemType.Buffer });
                     return skip;
                 }
             }
@@ -1300,26 +1309,39 @@ namespace Neo.Compiler.MSIL
             return 0;
         }
 
-        private int ConvertNewObj(OpCode src, NeoMethod to)
+        private int ConvertNewObj(ILMethod from, OpCode src, NeoMethod to)
         {
             var _type = (src.tokenUnknown as Mono.Cecil.MethodReference);
             if (_type.FullName == "System.Void System.Numerics.BigInteger::.ctor(System.Byte[])")
             {
-                return 0;//donothing;
+                return 0; // donothing;
             }
             else if (_type.DeclaringType.FullName.Contains("Exception"))
             {
+                // NeoVM `catch` instruction need one exception parameter
                 Convert1by1(VM.OpCode.NOP, src, to);
+
                 var pcount = _type.Parameters.Count;
-                for (var i = 0; i < pcount; i++)
+                //pcount must be 1
+                //if more then one, drop them.
+                //if pcount==0,add one.
+                if (pcount == 0) // If there is no parameter, insert one pararmeter
                 {
-                    Insert1(VM.OpCode.DROP, "", to);
+                    ConvertPushString("usererror", src, to);
+                }
+                else if (pcount > 1)
+                {
+                    // Keep the first exception parameter
+                    for (var i = 0; i < pcount - 1; i++)
+                    {
+                        Insert1(VM.OpCode.DROP, "", to);
+                    }
                 }
                 return 0;
             }
             var type = _type.Resolve();
 
-            //Replace the New Array operation if there is an [OpCode] on the constructor
+            // Replace the New Array operation if there is an [OpCode] on the constructor
             foreach (var m in type.DeclaringType.Methods)
             {
                 if (m.IsConstructor && m.HasCustomAttributes)
@@ -1338,6 +1360,18 @@ namespace Neo.Compiler.MSIL
                         }
                     }
                 }
+            }
+
+            //ValueTuple
+            if (type.DeclaringType.FullName.StartsWith("System.ValueTuple`"))
+            {
+                // Multiple returns
+                var count = type.DeclaringType.GenericParameters.Count;
+                ConvertPushI4WithConv(from, count, src, to);
+                Insert1(VM.OpCode.PACK, null, to);
+                Insert1(VM.OpCode.DUP, null, to);
+                Insert1(VM.OpCode.REVERSEITEMS, null, to);
+                return 0;
             }
 
             Convert1by1(VM.OpCode.NOP, src, to);

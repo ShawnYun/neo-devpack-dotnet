@@ -14,14 +14,19 @@ namespace Neo.Compiler.MSIL.TestClasses
             return Runtime.Time;
         }
 
+        public static long GetGasLeft()
+        {
+            return Runtime.GasLeft;
+        }
+
         public static string GetPlatform()
         {
             return Runtime.Platform;
         }
 
-        public static TriggerType GetTrigger()
+        public static byte GetTrigger()
         {
-            return Runtime.Trigger;
+            return (byte)Runtime.Trigger;
         }
 
         public static void Log(string message)
