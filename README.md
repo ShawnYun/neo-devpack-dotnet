@@ -29,13 +29,13 @@ An overview of the project folders can be seen below.
 
 |Folder|Content|
 |---|---|
-|Neo.Compiler.MSIL| Classes used to complier C# codes to NeoVM opcodes.|
+|Neo.Compiler.MSIL| Classes used to compile C# codes to NeoVM opcodes.|
 |Neo.SmartContract.Framework|The framework of Neo SmartContract.|
 |templates|The template SmartContracts of C#, VB and NEP5.|
 
 ## How to use it
 
-For comliling a contract, see [Compiling a contract sample.](https://docs.neo.org/v3/docs/en-us/sc/gettingstarted/develop.html)
+For compiling a contract, see [Compiling a contract sample.](https://docs.neo.org/v3/docs/en-us/sc/gettingstarted/develop.html)
 
 
 ## Related projects
