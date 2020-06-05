@@ -30,8 +30,8 @@ An overview of the project folders can be seen below.
 |Folder|Content|
 |---|---|
 |Neo.Compiler.MSIL| Classes used to compile C# codes to NeoVM opcodes.|
-|Neo.SmartContract.Framework|The framework of Neo SmartContract.|
-|templates|The template SmartContracts of C#, VB and NEP5.|
+|Neo.SmartContract.Framework|The framework of Neo SmartContract. Neo.SmartContract.Framework.SmartContract Is the default superclass of smart contract.|
+|templates|The template smart contracts of C#, VB and NEP5. You can refer to them to write your own smart contract|
 
 ## How to use it
 
