@@ -17,7 +17,6 @@
 
 # NEO Devpack Dotnet
 
-## Overview
 This is the set of development tools for .NET.
 
 For detailed documentation, see [docs.neo.org](https://docs.neo.org/docs/en-us/index.html) and the [NEO whitepaper](https://docs.neo.org/docs/en-us/basic/whitepaper.html).
@@ -39,8 +38,16 @@ For compiling a contract, see [Compiling a contract sample.](https://docs.neo.or
 
 
 ## Related projects
+Code references are provided for all platform building blocks. That includes the base library, the VM, a command line application and the compiler. 
 
 * [neo:](https://github.com/neo-project/neo/) Neo core library, contains base classes, including ledger, p2p and IO modules.
 * [neo-vm:](https://github.com/neo-project/neo-vm/) Neo Virtual Machine is a decoupled VM that Neo uses to execute its scripts. It also uses the `InteropService` layer to extend its functionalities.
 * [neo-node:](https://github.com/neo-project/neo-node/) Executable version of the Neo library, exposing features using a command line application or GUI.
 * [neo-modules:](https://github.com/neo-project/neo-modules/) Neo modules include additional tools and plugins to be used with Neo.
+* [neo-devpack-dotnet:](https://github.com/neo-project/neo-devpack-dotnet/) These are the official tools used to convert a C# smart-contract into a *neo executable file*.
+
+## Bounty program
+You can be rewarded by finding security issues. Please refer to our [bounty program page](https://neo.org/bounty) for more information.
+
+## License
+The NEO project is licensed under the [MIT license](LICENSE).
